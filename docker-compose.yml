@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  prtg-monitor:
+    # Weist Docker Compose an, das Image zu bauen, anstatt es aus einer Registry zu ziehen.
+    build:
+      context: . # Das Verzeichnis, in dem der Dockerfile liegt
+    container_name: prtg-monitor-py
+    restart: unless-stopped
+    volumes:
+      # Verknüpfe eine externe Konfigurationsdatei schreibgeschützt in den Container.
+      # Dies ist der empfohlene Weg für Docker.
+      - ./config_prod/config.ini:/app/config/config.ini:ro
+
+      # Verknüpfe ein externes Verzeichnis, um die generierten JSON-Dateien zu speichern.
+      - ./data_prod:/app/data
