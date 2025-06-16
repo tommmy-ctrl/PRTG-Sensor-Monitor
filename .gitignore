@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Lokale Konfiguration und Daten
+config.ini
+data/
+
+# VS Code
+.vscode/
