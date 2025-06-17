@@ -7,6 +7,8 @@ import threading
 from datetime import datetime
 import signal
 import sys
+import json
+import psycopg2 # Neue Bibliothek für PostgreSQL
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -15,23 +17,34 @@ shutdown_flag = threading.Event()
 
 # --- Konfiguration laden ---
 config = configparser.ConfigParser()
-# Wir suchen an zwei Orten: zuerst im /app/config-Ordner (für Docker), dann lokal.
 config_paths = ['/app/config/config.ini', 'config.ini']
 try:
     if not config.read(config_paths):
-        print("FEHLER: Konfigurationsdatei (config.ini) konnte an keinem der erwarteten Orte gefunden werden. Beende.")
+        print("FEHLER: Konfigurationsdatei (config.ini) konnte nicht gefunden werden.")
         sys.exit(1)
 except configparser.Error as e:
     print(f"FEHLER beim Parsen der Konfigurationsdatei: {e}")
     sys.exit(1)
 
-
-STORAGE_CONFIG = config['storage']
-OUTPUT_PATH = STORAGE_CONFIG.get('output_path', '/app/data')
-MAX_FILES = STORAGE_CONFIG.getint('max_file_count_per_server', 20)
+# --- Datenbankverbindung herstellen ---
+def get_db_connection():
+    """Stellt eine Verbindung zur PostgreSQL-Datenbank her."""
+    try:
+        db_config = config['database']
+        conn = psycopg2.connect(
+            host=db_config.get('host'),
+            port=db_config.get('port'),
+            dbname=db_config.get('dbname'),
+            user=db_config.get('user'),
+            password=db_config.get('password')
+        )
+        return conn
+    except Exception as e:
+        print(f"FEHLER bei der Datenbankverbindung: {e}")
+        return None
 
 class PrtgPoller:
-    """Eine Klasse, die einen einzelnen PRTG-Server überwacht."""
+    """Eine Klasse, die einen PRTG-Server überwacht und Daten in die DB schreibt."""
 
     def __init__(self, server_alias, server_config):
         self.alias = server_alias
@@ -40,9 +53,7 @@ class PrtgPoller:
         self.port = self.config.getint('port')
         self.protocol = self.config.get('protocol', 'http')
         self.ignore_ssl = self.config.getboolean('ignore_ssl_errors', False)
-
-        os.makedirs(OUTPUT_PATH, exist_ok=True)
-        print(f"[{self.alias}] Poller initialisiert. Daten werden in '{OUTPUT_PATH}' gespeichert.")
+        print(f"[{self.alias}] Poller initialisiert.")
 
     def _build_url(self):
         base_url = f"{self.protocol}://{self.server_ip}:{self.port}/api/table.json?content=sensors&columns=objid,sensor,status,message,lastvalue,priority&filter_status=4&filter_status=5"
@@ -60,49 +71,90 @@ class PrtgPoller:
         try:
             response = requests.get(api_url, verify=not self.ignore_ssl, timeout=15)
             response.raise_for_status()
-            self._save_data(response.text)
+            
+            # Die JSON-Antwort von PRTG parsen
+            prtg_response = json.loads(response.text)
+            sensors = prtg_response.get('sensors', [])
+            
+            self._save_to_db(sensors)
+
         except requests.exceptions.RequestException as e:
             print(f"[{self.alias}] FEHLER beim Abruf: {e}")
+        except json.JSONDecodeError as e:
+            print(f"[{self.alias}] FEHLER beim Parsen der JSON-Antwort: {e}")
 
-    def _save_data(self, data):
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{self.alias}_{timestamp}.json"
-        filepath = os.path.join(OUTPUT_PATH, filename)
-        try:
-            with open(filepath, 'w') as f:
-                f.write(data)
-            print(f"[{self.alias}] Daten erfolgreich gespeichert: {filename}")
-            self._cleanup_old_files()
-        except IOError as e:
-            print(f"[{self.alias}] FEHLER beim Speichern der Datei: {e}")
+    def _save_to_db(self, sensors):
+        """Löscht alte Einträge für diesen Server und fügt die neuen hinzu."""
+        conn = get_db_connection()
+        if not conn:
+            print(f"[{self.alias}] Überspringe Speichern, keine DB-Verbindung.")
+            return
 
-    def _cleanup_old_files(self):
         try:
-            files = [f for f in os.listdir(OUTPUT_PATH) if f.startswith(f"{self.alias}_") and f.endswith(".json")]
-            files.sort(key=lambda name: os.path.getmtime(os.path.join(OUTPUT_PATH, name)))
-            while len(files) > MAX_FILES:
-                file_to_delete = files.pop(0)
-                os.remove(os.path.join(OUTPUT_PATH, file_to_delete))
-                print(f"[{self.alias}] Alte Datei gelöscht: {file_to_delete}")
+            with conn.cursor() as cur:
+                # Schritt 1: Alle alten Einträge für diesen Server löschen (TRUNCATE-Teil)
+                print(f"[{self.alias}] Lösche alte Einträge aus der Datenbank...")
+                cur.execute("DELETE FROM sensor_readings WHERE server_alias = %s;", (self.alias,))
+                
+                # Schritt 2: Die neuen Sensordaten einfügen (LOAD-Teil)
+                if not sensors:
+                    print(f"[{self.alias}] Keine neuen Sensoren mit Problemen gefunden.")
+                else:
+                    print(f"[{self.alias}] Füge {len(sensors)} neue Einträge in die Datenbank ein...")
+                    for sensor in sensors:
+                        cur.execute(
+                            """
+                            INSERT INTO sensor_readings (server_alias, sensor_id, sensor_name, status, status_code, last_value, message, priority)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+                            """,
+                            (
+                                self.alias,
+                                sensor.get('objid'),
+                                sensor.get('sensor'),
+                                sensor.get('status'),
+                                sensor.get('status_raw'), # PRTG API gibt status_raw für den Code
+                                sensor.get('lastvalue'),
+                                sensor.get('message'),
+                                sensor.get('priority_raw') # PRTG API gibt priority_raw
+                            )
+                        )
+                
+                # Änderungen in der Datenbank bestätigen
+                conn.commit()
+                print(f"[{self.alias}] Datenbank-Update erfolgreich abgeschlossen.")
+
         except Exception as e:
-            print(f"[{self.alias}] FEHLER beim Bereinigen alter Dateien: {e}")
+            print(f"[{self.alias}] FEHLER beim Schreiben in die Datenbank: {e}")
+            conn.rollback() # Änderungen im Fehlerfall zurückrollen
+        finally:
+            if conn:
+                conn.close()
+
+# --- Der Rest des Skripts bleibt fast gleich ---
 
 def run_threaded(job_func):
     job_thread = threading.Thread(target=job_func)
     job_thread.start()
 
 def shutdown_handler(signum, frame):
-    """Behandelt SIGTERM und SIGINT für einen sauberen Shutdown."""
-    print("\nShutdown-Signal empfangen. Beende geplante Jobs und warte auf Abschluss...")
+    print("\nShutdown-Signal empfangen. Beende geplante Jobs...")
     shutdown_flag.set()
     schedule.clear()
 
 def main():
     print("--- PRTG Monitor Dienst startet ---")
+    # Teste die DB-Verbindung beim Start
+    conn = get_db_connection()
+    if conn:
+        print("Datenbankverbindung erfolgreich getestet.")
+        conn.close()
+    else:
+        print("WARNUNG: Konnte keine Verbindung zur Datenbank herstellen. Skript läuft weiter und versucht es erneut.")
+
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
     
-    server_sections = [s for s in config.sections() if s != 'storage']
+    server_sections = [s for s in config.sections() if s not in ['storage', 'database']]
     if not server_sections:
         print("FEHLER: Keine Server in config.ini gefunden. Beende.")
         return
@@ -112,7 +164,7 @@ def main():
         interval = config[server_alias].getint('refresh_interval_seconds', 60)
         schedule.every(interval).seconds.do(run_threaded, poller.poll)
     
-    print("Alle Jobs geplant. Starte Endlosschleife... (Drücke Ctrl+C zum Beenden)")
+    print("Alle Jobs geplant. Starte Endlosschleife...")
     run_threaded(schedule.run_all)
     
     while not shutdown_flag.is_set():

@@ -1,14 +1,16 @@
-version: '3.8'
-
 services:
   prtg-monitor:
-    image: tommmy-ctrl/prtg-monitor:latest
-
+    build: .
+    container_name: prtg-monitor-py
+    restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
-
-    container_name: prtg-service-linux
-    restart: unless-stopped
     volumes:
-      - ./config/config.ini:/app/config/config.ini:ro
-      - ./data:/app/data
+      - ./config:/app/config
+    networks:
+      - db_network_external
+
+networks:
+  db_network_external:
+    name: database-stack_db_network
+    external: true
