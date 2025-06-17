@@ -7,6 +7,8 @@ import threading
 from datetime import datetime
 import signal
 import sys
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # --- Globale Variable für den sauberen Shutdown ---
 shutdown_flag = threading.Event()

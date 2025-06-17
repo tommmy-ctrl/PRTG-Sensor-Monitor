@@ -2,9 +2,13 @@ version: '3.8'
 
 services:
   prtg-monitor:
-    image: dein-dockerhub-name/prtg-monitor:latest  # <--- HIER ÄNDERN
-    container_name: prtg-monitor-py
+    image: tommmy-ctrl/prtg-monitor:latest
+
+    environment:
+      - PYTHONUNBUFFERED=1
+
+    container_name: prtg-service-linux
     restart: unless-stopped
     volumes:
-      - /pfad/auf/deinem/docker/host/config:/app/config/config.ini:ro
-      - /pfad/auf/deinem/docker/host/data:/app/data
+      - ./config/config.ini:/app/config/config.ini:ro
+      - ./data:/app/data
