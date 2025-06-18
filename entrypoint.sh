@@ -1,20 +1,20 @@
-# Beendet das Skript sofort, wenn ein Befehl fehlschlägt
+# Exit immediately if a command exits with a non-zero status
 set -e
 
-# Definiert das Konfigurationsverzeichnis
+# Define the configuration directory
 CONFIG_DIR="/app/config"
 
-# Gibt eine Statusmeldung aus
-echo "Entrypoint: Überprüfe Verzeichnisse und Berechtigungen..."
+# Print status message
+echo "Entrypoint: Checking directories and permissions..."
 
-# Erstellt das Konfigurationsverzeichnis, falls es nicht existiert
+# Create the configuration directory if it does not exist
 mkdir -p ${CONFIG_DIR}
 
-# Setzt die Besitzrechte für das Verzeichnis auf den Benutzer 'appuser' und die Gruppe 'appgroup'
+# Set ownership of the directory to user 'appuser' and group 'appgroup'
 chown -R appuser:appgroup ${CONFIG_DIR}
 
-# Gibt eine Statusmeldung aus, dass das Setup abgeschlossen ist
-echo "Entrypoint: Setup abgeschlossen. Starte die Anwendung als 'appuser'..."
+# Print status message indicating setup is complete
+echo "Entrypoint: Setup complete. Starting the application as 'appuser'..."
 
-# Startet die übergebenen Befehle als Benutzer 'appuser' (über gosu für Rechtewechsel)
-exec gosu appuser "$@"
+# Execute the given command as user 'appuser' (using gosu for privilege drop)
+exec gosu

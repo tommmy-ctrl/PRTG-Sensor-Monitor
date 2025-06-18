@@ -3,7 +3,7 @@ __pycache__/
 *.pyc
 .venv/
 
-# Lokale Konfiguration und Daten
+# Local development files
 config.ini
 data/
 
