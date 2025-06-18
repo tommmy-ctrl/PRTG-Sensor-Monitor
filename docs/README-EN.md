@@ -116,7 +116,6 @@ The database is now ready.
 ### 3.2. Step 2: Deploy the PRTG Monitor Service
 
 1.  **Clone the Git Repository:**
-    Since the repository is public, no Personal Access Token is needed.
     ```bash
     cd ~
     git clone https://github.com/tommmy-ctrl/PRTG-Service-Linux.git
