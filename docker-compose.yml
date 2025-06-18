@@ -6,11 +6,16 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./config:/app/config
+      # Verknüpft den lokalen 'config'-Ordner mit dem Container.
+      # Dieser Ordner wird von Git ignoriert.
+      - ./config:/app/config:ro
+      # Verknüpft den lokalen 'data'-Ordner, falls das Skript doch mal Dateien schreibt.
+      - ./data:/app/data
     networks:
       - db_network_external
 
 networks:
   db_network_external:
+    # Verbindet sich mit dem Netzwerk des Datenbank-Stacks.
     name: database-stack_db_network
     external: true
