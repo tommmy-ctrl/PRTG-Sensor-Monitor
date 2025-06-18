@@ -180,7 +180,7 @@ If the Python code (`main.py`) or dependencies (`requirements.txt`) are updated 
 ### Changing the Configuration
 Changes to `config.ini` only require a restart of the container, not a rebuild.
 
-1.  Edit the private configuration file: `nano ~/PRTG-Service-Linux/config/ini`.
+1.  Edit the private configuration file: `nano ~/PRTG-Service-Linux/config/config.ini`.
 2.  Restart the service to apply the changes:
     ```bash
     cd ~/PRTG-Service-Linux
